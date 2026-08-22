@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -12,6 +13,7 @@
     />
 
     <style>
+
         body {
             margin: 0;
             font-family: Arial, sans-serif;
@@ -31,7 +33,7 @@
             padding: 15px;
             border-radius: 10px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.3);
-            width: 230px;
+            width: 250px;
         }
 
         #panel button {
@@ -55,8 +57,11 @@
         #estado {
             margin-top: 10px;
             font-size: 14px;
+            white-space: pre-line;
         }
+
     </style>
+
 </head>
 
 <body>
@@ -74,26 +79,31 @@
     </button>
 
     <div id="estado">
-        Pulsa "Crear ruta"
+        📍 Esperando ubicación...
     </div>
 
 </div>
 
 <div id="map"></div>
 
+
 <script
     src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
 </script>
 
+
 <script>
 
-    // Crear mapa
+    // =====================================================
+    // MAPA
+    // =====================================================
+
     const mapa = L.map('map').setView(
         [-13.5226, -71.9673],
         13
     );
 
-    // Mapa base
+
     L.tileLayer(
         'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
         {
@@ -101,6 +111,10 @@
         }
     ).addTo(mapa);
 
+
+    // =====================================================
+    // VARIABLES DE RUTA
+    // =====================================================
 
     let seleccionandoRuta = false;
 
@@ -113,21 +127,68 @@
     let lineaRuta = null;
 
 
-    // Botón crear ruta
-    document.getElementById("crearRuta").addEventListener("click", () => {
+    // =====================================================
+    // VARIABLES GPS
+    // =====================================================
 
-        seleccionandoRuta = true;
+    let marcadorGPS = null;
 
-        puntoInicio = null;
-        puntoDestino = null;
+    let recorridoGPS = [];
 
-        document.getElementById("estado").innerText =
-            "Haz clic en el mapa para elegir el INICIO";
+    let lineaRecorrido = null;
 
-    });
+    let seguimientoActivo = false;
+
+    let watchID = null;
 
 
-    // Click en el mapa
+    // =====================================================
+    // ESTADO
+    // =====================================================
+
+    const estado = document.getElementById("estado");
+
+
+    // =====================================================
+    // CREAR RUTA
+    // =====================================================
+
+    document.getElementById("crearRuta").addEventListener(
+        "click",
+        () => {
+
+            seleccionandoRuta = true;
+
+            puntoInicio = null;
+            puntoDestino = null;
+
+            if (marcadorInicio) {
+                mapa.removeLayer(marcadorInicio);
+            }
+
+            if (marcadorDestino) {
+                mapa.removeLayer(marcadorDestino);
+            }
+
+            if (lineaRuta) {
+                mapa.removeLayer(lineaRuta);
+            }
+
+            marcadorInicio = null;
+            marcadorDestino = null;
+            lineaRuta = null;
+
+            estado.innerText =
+                "📍 Haz clic en el mapa para elegir el INICIO";
+
+        }
+    );
+
+
+    // =====================================================
+    // SELECCIONAR PUNTOS DE RUTA
+    // =====================================================
+
     mapa.on("click", function(e) {
 
         if (!seleccionandoRuta) {
@@ -138,7 +199,10 @@
         const lon = e.latlng.lng;
 
 
-        // PRIMER PUNTO
+        // -------------------------------------------------
+        // INICIO
+        // -------------------------------------------------
+
         if (!puntoInicio) {
 
             puntoInicio = [lat, lon];
@@ -150,14 +214,17 @@
             .bindPopup("🟢 Inicio")
             .openPopup();
 
-            document.getElementById("estado").innerText =
-                "Ahora selecciona el DESTINO";
+            estado.innerText =
+                "🎯 Ahora selecciona el DESTINO";
 
             return;
         }
 
 
-        // SEGUNDO PUNTO
+        // -------------------------------------------------
+        // DESTINO
+        // -------------------------------------------------
+
         if (!puntoDestino) {
 
             puntoDestino = [lat, lon];
@@ -170,131 +237,402 @@
             .openPopup();
 
 
-            /// Coordenadas para OSRM
-const inicio = puntoInicio[1] + "," + puntoInicio[0];
-const destino = puntoDestino[1] + "," + puntoDestino[0];
+            // =============================================
+            // CALCULAR RUTA CON OSRM
+            // =============================================
 
-const url =
-    "https://router.project-osrm.org/route/v1/driving/" +
-    inicio + ";" +
-    destino +
-    "?overview=full&geometries=geojson";
+            const inicio =
+                puntoInicio[1] + "," + puntoInicio[0];
 
-document.getElementById("estado").innerText =
-    "🛣️ Calculando ruta...";
+            const destino =
+                puntoDestino[1] + "," + puntoDestino[0];
 
-fetch(url)
-    .then(response => response.json())
-    .then(data => {
 
-        if (data.code !== "Ok") {
+            const url =
+                "https://router.project-osrm.org/route/v1/driving/" +
+                inicio +
+                ";" +
+                destino +
+                "?overview=full&geometries=geojson";
 
-            document.getElementById("estado").innerText =
-                "❌ No se pudo calcular la ruta";
+
+            estado.innerText =
+                "🛣️ Calculando ruta...";
+
+
+            fetch(url)
+
+                .then(response => response.json())
+
+                .then(data => {
+
+                    if (data.code !== "Ok") {
+
+                        estado.innerText =
+                            "❌ No se pudo calcular la ruta";
+
+                        return;
+                    }
+
+
+                    const ruta =
+                        data.routes[0];
+
+
+                    // -------------------------------------
+                    // CONVERTIR GEOJSON
+                    // -------------------------------------
+
+                    const coordenadas =
+                        ruta.geometry.coordinates.map(
+                            punto => [
+                                punto[1],
+                                punto[0]
+                            ]
+                        );
+
+
+                    // -------------------------------------
+                    // DIBUJAR RUTA
+                    // -------------------------------------
+
+                    lineaRuta = L.polyline(
+                        coordenadas,
+                        {
+                            weight: 6
+                        }
+                    ).addTo(mapa);
+
+
+                    // -------------------------------------
+                    // AJUSTAR MAPA
+                    // -------------------------------------
+
+                    mapa.fitBounds(
+                        lineaRuta.getBounds(),
+                        {
+                            padding: [50, 50]
+                        }
+                    );
+
+
+                    // -------------------------------------
+                    // INFORMACIÓN
+                    // -------------------------------------
+
+                    const distanciaKm =
+                        (ruta.distance / 1000).toFixed(2);
+
+
+                    const minutos =
+                        Math.round(
+                            ruta.duration / 60
+                        );
+
+
+                    estado.innerText =
+                        "✅ Ruta creada\n" +
+                        "📏 Distancia: " +
+                        distanciaKm +
+                        " km\n" +
+                        "⏱️ Tiempo: " +
+                        minutos +
+                        " min";
+
+
+                    seleccionandoRuta = false;
+
+                })
+
+                .catch(error => {
+
+                    console.error(error);
+
+                    estado.innerText =
+                        "❌ Error al calcular la ruta";
+
+                });
+
+        }
+
+    });
+
+
+    // =====================================================
+    // GPS DEL IPHONE
+    // =====================================================
+
+    function iniciarGPS() {
+
+        if (!navigator.geolocation) {
+
+            estado.innerText =
+                "❌ Este dispositivo no soporta GPS";
 
             return;
         }
 
-        const ruta = data.routes[0];
 
-        // Convertir GeoJSON a coordenadas Leaflet
-        const coordenadas =
-            ruta.geometry.coordinates.map(punto => [
-                punto[1],
-                punto[0]
-            ]);
-
-        // Dibujar ruta real
-        lineaRuta = L.polyline(
-            coordenadas,
-            {
-                weight: 6
-            }
-        ).addTo(mapa);
-
-        // Ajustar mapa a la ruta
-        mapa.fitBounds(
-            lineaRuta.getBounds(),
-            {
-                padding: [50, 50]
-            }
-        );
-
-        // Distancia
-        const distanciaKm =
-            (ruta.distance / 1000).toFixed(2);
-
-        // Tiempo
-        const minutos =
-            Math.round(ruta.duration / 60);
-
-        document.getElementById("estado").innerText =
-            "✅ Ruta creada\n" +
-            "📏 Distancia: " + distanciaKm + " km\n" +
-            "⏱️ Tiempo: " + minutos + " min";
-
-    })
-    .catch(error => {
-
-        console.error(error);
-
-        document.getElementById("estado").innerText =
-            "❌ Error al calcular la ruta";
-
-    });
+        seguimientoActivo = true;
 
 
-            // Ajustar mapa
-            mapa.fitBounds(
-                lineaRuta.getBounds(),
+        estado.innerText =
+            "📍 Obteniendo ubicación...";
+
+
+        watchID =
+            navigator.geolocation.watchPosition(
+
+                function(position) {
+
+                    const lat =
+                        position.coords.latitude;
+
+                    const lon =
+                        position.coords.longitude;
+
+                    const precision =
+                        position.coords.accuracy;
+
+
+                    console.log(
+                        "📍 GPS:",
+                        lat,
+                        lon,
+                        "Precisión:",
+                        precision
+                    );
+
+
+                    // =====================================
+                    // MARCADOR ACTUAL
+                    // =====================================
+
+                    if (!marcadorGPS) {
+
+                        marcadorGPS =
+                            L.marker(
+                                [lat, lon]
+                            )
+                            .addTo(mapa)
+                            .bindPopup(
+                                "📱 Mi ubicación"
+                            );
+
+                    } else {
+
+                        marcadorGPS.setLatLng(
+                            [lat, lon]
+                        );
+
+                    }
+
+
+                    // =====================================
+                    // RECORRIDO
+                    // =====================================
+
+                    recorridoGPS.push(
+                        [lat, lon]
+                    );
+
+
+                    if (lineaRecorrido) {
+
+                        mapa.removeLayer(
+                            lineaRecorrido
+                        );
+
+                    }
+
+
+                    lineaRecorrido =
+                        L.polyline(
+                            recorridoGPS,
+                            {
+                                weight: 5
+                            }
+                        ).addTo(mapa);
+
+
+                    // =====================================
+                    // CENTRAR MAPA
+                    // =====================================
+
+                    mapa.setView(
+                        [lat, lon],
+                        16
+                    );
+
+
+                    // =====================================
+                    // INFORMACIÓN
+                    // =====================================
+
+                    estado.innerText =
+                        "📍 GPS activo\n" +
+                        "Latitud: " +
+                        lat.toFixed(6) +
+                        "\nLongitud: " +
+                        lon.toFixed(6) +
+                        "\nPrecisión: " +
+                        Math.round(precision) +
+                        " m";
+
+
+                    // =====================================
+                    // ENVIAR AL SERVIDOR
+                    // =====================================
+
+                    enviarUbicacion(
+                        lat,
+                        lon,
+                        precision
+                    );
+
+                },
+
+
+                function(error) {
+
+                    console.error(
+                        "GPS ERROR:",
+                        error
+                    );
+
+
+                    estado.innerText =
+                        "❌ Error GPS: " +
+                        error.message;
+
+                },
+
+
                 {
-                    padding: [50, 50]
+                    enableHighAccuracy: true,
+                    maximumAge: 5000,
+                    timeout: 10000
                 }
+
             );
 
+    }
+
+
+    // =====================================================
+    // ENVIAR UBICACIÓN A FLASK
+    // =====================================================
+
+    function enviarUbicacion(
+        lat,
+        lon,
+        precision
+    ) {
+
+        fetch(
+            "/ubicacion",
+            {
+                method: "POST",
+
+                headers: {
+                    "Content-Type":
+                        "application/json"
+                },
+
+                body: JSON.stringify({
+
+                    latitud: lat,
+
+                    longitud: lon,
+
+                    precision: precision,
+
+                    timestamp:
+                        new Date().toISOString()
+
+                })
+
+            }
+        )
+
+        .then(response =>
+            response.json()
+        )
+
+        .then(data => {
+
+            console.log(
+                "☁️ Servidor:",
+                data
+            );
+
+        })
+
+        .catch(error => {
+
+            console.error(
+                "❌ Error enviando ubicación:",
+                error
+            );
+
+        });
+
+    }
+
+
+    // =====================================================
+    // INICIAR GPS AUTOMÁTICAMENTE
+    // =====================================================
+
+    iniciarGPS();
+
+
+    // =====================================================
+    // LIMPIAR
+    // =====================================================
+
+    document.getElementById("limpiar").addEventListener(
+        "click",
+        () => {
+
+            if (marcadorInicio) {
+                mapa.removeLayer(
+                    marcadorInicio
+                );
+            }
+
+            if (marcadorDestino) {
+                mapa.removeLayer(
+                    marcadorDestino
+                );
+            }
+
+            if (lineaRuta) {
+                mapa.removeLayer(
+                    lineaRuta
+                );
+            }
+
+
+            puntoInicio = null;
+            puntoDestino = null;
+
+            marcadorInicio = null;
+            marcadorDestino = null;
+
+            lineaRuta = null;
 
             seleccionandoRuta = false;
 
 
-            document.getElementById("estado").innerText =
-                "✅ Ruta creada";
+            estado.innerText =
+                "📍 GPS activo\nPulsa 'Crear ruta'";
 
         }
-
-    });
-
-
-    // Limpiar
-    document.getElementById("limpiar").addEventListener("click", () => {
-
-        if (marcadorInicio) {
-            mapa.removeLayer(marcadorInicio);
-        }
-
-        if (marcadorDestino) {
-            mapa.removeLayer(marcadorDestino);
-        }
-
-        if (lineaRuta) {
-            mapa.removeLayer(lineaRuta);
-        }
-
-        puntoInicio = null;
-        puntoDestino = null;
-
-        marcadorInicio = null;
-        marcadorDestino = null;
-
-        lineaRuta = null;
-
-        seleccionandoRuta = false;
-
-        document.getElementById("estado").innerText =
-            "Pulsa 'Crear ruta'";
-
-    });
+    );
 
 </script>
 
 </body>
+
 </html>
