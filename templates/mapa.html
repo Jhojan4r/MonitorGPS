@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Monitor GPS</title>
+
+    <link
+        rel="stylesheet"
+        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    />
+
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+        }
+
+        #map {
+            width: 100%;
+            height: 100vh;
+        }
+
+        #panel {
+            position: fixed;
+            z-index: 1000;
+            top: 15px;
+            left: 15px;
+            background: white;
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+            width: 230px;
+        }
+
+        #panel button {
+            width: 100%;
+            margin-top: 8px;
+            padding: 10px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+
+        #crearRuta {
+            background: #2196f3;
+            color: white;
+        }
+
+        #limpiar {
+            background: #eee;
+        }
+
+        #estado {
+            margin-top: 10px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+
+<body>
+
+<div id="panel">
+
+    <strong>🗺️ Monitor GPS</strong>
+
+    <button id="crearRuta">
+        📍 Crear ruta
+    </button>
+
+    <button id="limpiar">
+        🗑️ Limpiar
+    </button>
+
+    <div id="estado">
+        Pulsa "Crear ruta"
+    </div>
+
+</div>
+
+<div id="map"></div>
+
+<script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
+</script>
+
+<script>
+
+    // Crear mapa
+    const mapa = L.map('map').setView(
+        [-13.5226, -71.9673],
+        13
+    );
+
+    // Mapa base
+    L.tileLayer(
+        'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+        {
+            attribution: '&copy; OpenStreetMap contributors'
+        }
+    ).addTo(mapa);
+
+
+    let seleccionandoRuta = false;
+
+    let puntoInicio = null;
+    let puntoDestino = null;
+
+    let marcadorInicio = null;
+    let marcadorDestino = null;
+
+    let lineaRuta = null;
+
+
+    // Botón crear ruta
+    document.getElementById("crearRuta").addEventListener("click", () => {
+
+        seleccionandoRuta = true;
+
+        puntoInicio = null;
+        puntoDestino = null;
+
+        document.getElementById("estado").innerText =
+            "Haz clic en el mapa para elegir el INICIO";
+
+    });
+
+
+    // Click en el mapa
+    mapa.on("click", function(e) {
+
+        if (!seleccionandoRuta) {
+            return;
+        }
+
+        const lat = e.latlng.lat;
+        const lon = e.latlng.lng;
+
+
+        // PRIMER PUNTO
+        if (!puntoInicio) {
+
+            puntoInicio = [lat, lon];
+
+            marcadorInicio = L.marker(
+                puntoInicio
+            )
+            .addTo(mapa)
+            .bindPopup("🟢 Inicio")
+            .openPopup();
+
+            document.getElementById("estado").innerText =
+                "Ahora selecciona el DESTINO";
+
+            return;
+        }
+
+
+        // SEGUNDO PUNTO
+        if (!puntoDestino) {
+
+            puntoDestino = [lat, lon];
+
+            marcadorDestino = L.marker(
+                puntoDestino
+            )
+            .addTo(mapa)
+            .bindPopup("🔴 Destino")
+            .openPopup();
+
+
+            /// Coordenadas para OSRM
+const inicio = puntoInicio[1] + "," + puntoInicio[0];
+const destino = puntoDestino[1] + "," + puntoDestino[0];
+
+const url =
+    "https://router.project-osrm.org/route/v1/driving/" +
+    inicio + ";" +
+    destino +
+    "?overview=full&geometries=geojson";
+
+document.getElementById("estado").innerText =
+    "🛣️ Calculando ruta...";
+
+fetch(url)
+    .then(response => response.json())
+    .then(data => {
+
+        if (data.code !== "Ok") {
+
+            document.getElementById("estado").innerText =
+                "❌ No se pudo calcular la ruta";
+
+            return;
+        }
+
+        const ruta = data.routes[0];
+
+        // Convertir GeoJSON a coordenadas Leaflet
+        const coordenadas =
+            ruta.geometry.coordinates.map(punto => [
+                punto[1],
+                punto[0]
+            ]);
+
+        // Dibujar ruta real
+        lineaRuta = L.polyline(
+            coordenadas,
+            {
+                weight: 6
+            }
+        ).addTo(mapa);
+
+        // Ajustar mapa a la ruta
+        mapa.fitBounds(
+            lineaRuta.getBounds(),
+            {
+                padding: [50, 50]
+            }
+        );
+
+        // Distancia
+        const distanciaKm =
+            (ruta.distance / 1000).toFixed(2);
+
+        // Tiempo
+        const minutos =
+            Math.round(ruta.duration / 60);
+
+        document.getElementById("estado").innerText =
+            "✅ Ruta creada\n" +
+            "📏 Distancia: " + distanciaKm + " km\n" +
+            "⏱️ Tiempo: " + minutos + " min";
+
+    })
+    .catch(error => {
+
+        console.error(error);
+
+        document.getElementById("estado").innerText =
+            "❌ Error al calcular la ruta";
+
+    });
+
+
+            // Ajustar mapa
+            mapa.fitBounds(
+                lineaRuta.getBounds(),
+                {
+                    padding: [50, 50]
+                }
+            );
+
+
+            seleccionandoRuta = false;
+
+
+            document.getElementById("estado").innerText =
+                "✅ Ruta creada";
+
+        }
+
+    });
+
+
+    // Limpiar
+    document.getElementById("limpiar").addEventListener("click", () => {
+
+        if (marcadorInicio) {
+            mapa.removeLayer(marcadorInicio);
+        }
+
+        if (marcadorDestino) {
+            mapa.removeLayer(marcadorDestino);
+        }
+
+        if (lineaRuta) {
+            mapa.removeLayer(lineaRuta);
+        }
+
+        puntoInicio = null;
+        puntoDestino = null;
+
+        marcadorInicio = null;
+        marcadorDestino = null;
+
+        lineaRuta = null;
+
+        seleccionandoRuta = false;
+
+        document.getElementById("estado").innerText =
+            "Pulsa 'Crear ruta'";
+
+    });
+
+</script>
+
+</body>
+</html>
